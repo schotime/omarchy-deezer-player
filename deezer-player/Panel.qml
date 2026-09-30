@@ -52,10 +52,21 @@ BarWidget {
   function close() { opened = false }
   function toggle() { opened = !opened }
 
-  function runAction(action) {
+  function runAction(action, argument) {
     if (actionProcess.running) return
     actionProcess.action = action
+    actionProcess.argument = argument === undefined ? "" : String(argument)
     actionProcess.running = true
+  }
+
+  // Seek to a fraction (0..1) of the current track.
+  function seekTo(fraction) {
+    if (duration <= 0 || actionProcess.running) return
+    var seconds = Math.floor(Math.max(0, Math.min(1, fraction)) * duration)
+    seconds = Math.min(seconds, Math.max(0, Math.floor(duration) - 1))
+    // Move the bar right away; the next status poll confirms it.
+    position = seconds
+    runAction("--seek", seconds)
   }
 
   function openTui() {
@@ -120,7 +131,8 @@ BarWidget {
   Process {
     id: actionProcess
     property string action: ""
-    command: [root.binary, action]
+    property string argument: ""
+    command: argument === "" ? [root.binary, action] : [root.binary, action, argument]
     onExited: root.refresh()
   }
 
@@ -241,6 +253,16 @@ BarWidget {
             height: parent.height
             radius: parent.radius
             color: root.accent
+          }
+
+          // The bar is only a few pixels tall, so the click target extends
+          // above and below it.
+          MouseArea {
+            anchors.fill: parent
+            anchors.topMargin: -Style.space(6)
+            anchors.bottomMargin: -Style.space(6)
+            cursorShape: Qt.PointingHandCursor
+            onClicked: function(mouse) { root.seekTo(mouse.x / width) }
           }
         }
 
