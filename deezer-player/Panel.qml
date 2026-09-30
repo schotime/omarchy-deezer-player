@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Services.Mpris
 import qs.Commons
@@ -18,6 +20,8 @@ BarWidget {
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color accent: Color.accent
+  // Deezer's brand purple, used for the bar logo while music is playing.
+  readonly property color deezerPurple: "#A238FF"
   readonly property color surface: Color.popups.background
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var mprisPlayers: Mpris.players ? Mpris.players.values : []
@@ -44,6 +48,33 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // The Deezer logo (assets/deezer.svg, white), tinted to `color` the same way
+  // the tray recolors symbolic icons.
+  component DeezerLogo: Item {
+    id: logo
+    property color color: root.foreground
+
+    Image {
+      id: logoImage
+      anchors.fill: parent
+      source: Qt.resolvedUrl("assets/deezer.svg")
+      fillMode: Image.PreserveAspectFit
+      sourceSize.width: Math.round(Math.min(width, height) * Screen.devicePixelRatio)
+      sourceSize.height: Math.round(Math.min(width, height) * Screen.devicePixelRatio)
+      smooth: true
+      // Kept as a hidden layer so the effect can sample it as a texture.
+      visible: false
+      layer.enabled: true
+    }
+
+    MultiEffect {
+      anchors.fill: logoImage
+      source: logoImage
+      colorization: 1.0
+      colorizationColor: logo.color
+    }
+  }
+
   function refresh() {
     if (!statusProcess.running) statusProcess.running = true
   }
@@ -69,13 +100,55 @@ BarWidget {
     runAction("--seek", seconds)
   }
 
+  // Transport controls drive whichever player the shell's media service
+  // considers active, like the stock media widget and the keyboard media keys.
+  // Without the service they fall back to deezer-tui's own CLI.
+  readonly property var mediaService: bar?.shell?.firstPartyServiceFor("omarchy.media")
+  readonly property var activePlayer: mediaService ? mediaService.activePlayer : null
+  readonly property bool activeIsDeezer: activePlayer !== null && activePlayer === mprisPlayer
+  readonly property bool mediaPlaying: activePlayer ? activePlayer.isPlaying : playbackStatus === "playing"
+  readonly property bool canControl: mediaService ? activePlayer !== null : playbackStatus !== "offline"
+
+  function mediaAction(action) {
+    if (mediaService && activePlayer) {
+      mediaService.runAction(action, false, mediaService.playerKey(activePlayer))
+      Qt.callLater(root.refresh)
+      return
+    }
+    var cli = { playPause: "--toggle", next: "--next", previous: "--prev" }
+    if (cli[action]) root.runAction(cli[action])
+  }
+
+  function scriptPath(name) {
+    return decodeURIComponent(String(Qt.resolvedUrl(name)).replace(/^file:\/\//, ""))
+  }
+
   function openTui() {
-    // Keep one TUI window: focus the existing app-id window instead of
-    // spawning a second terminal instance.
-    if (bar) bar.run("hyprctl clients -j | jq -e '.[] | select(.class == \"org.omarchy.deezer-tui\")' >/dev/null "
-      + "&& hyprctl dispatch 'hl.dsp.focus({ window = \"class:^(org.omarchy.deezer-tui)$\" })' "
-      + "|| env COLORTERM=truecolor omarchy-launch-tui --app-id=org.omarchy.deezer-tui " + root.binary)
+    // Keep one TUI window: open-tui.sh slides the drop-down in or out, or
+    // focuses a terminal running deezer-tui by hand, before launching.
+    if (bar) bar.run("bash " + Util.shellQuote(scriptPath("open-tui.sh")) + " " + Util.shellQuote(root.binary))
     root.close()
+  }
+
+  // Any focus change may have left the drop-down TUI behind. The delay lets
+  // follow-mouse focus cross other windows on the way into the drop-down, and
+  // hide-tui.sh asks Hyprland whether it is showing, so nothing here goes stale.
+  Timer {
+    id: hideTimer
+    interval: 400
+    onTriggered: if (!hideProcess.running) hideProcess.running = true
+  }
+
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (event && event.name === "activewindowv2") hideTimer.restart()
+    }
+  }
+
+  Process {
+    id: hideProcess
+    command: ["bash", root.scriptPath("hide-tui.sh")]
   }
 
   function formatTime(value) {
@@ -140,12 +213,38 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.playbackStatus === "playing" ? "󰎈" : "󰝚"
+    iconComponent: Component {
+      // The Loader resizes its item to the full icon canvas, so the logo sits
+      // inside a wrapper. It is sized to the painted bounds of the bar's
+      // music-note glyph at the bar icon font size, so it matches the
+      // neighbouring glyph icons and follows theme size changes.
+      Item {
+        TextMetrics {
+          id: referenceGlyph
+          font.family: button.fontFamily
+          font.pixelSize: Math.max(1, Math.round(button.fontSize))
+          text: "󰝚"
+        }
+
+        DeezerLogo {
+          anchors.centerIn: parent
+          width: Math.max(referenceGlyph.tightBoundingRect.width, referenceGlyph.tightBoundingRect.height)
+          height: width
+          color: root.playbackStatus === "playing" ? root.deezerPurple : button.foreground
+        }
+      }
+    }
     active: root.playbackStatus === "playing"
     tooltipText: root.title + (root.artist ? " — " + root.artist : "")
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) root.openTui()
+      else if (buttonCode === Qt.MiddleButton) root.mediaAction("playPause")
       else root.toggle()
+    }
+    // Same as the stock media widget: scroll up for previous, down for next.
+    onWheelMoved: function(delta) {
+      if (delta > 0) root.mediaAction("previous")
+      else if (delta < 0) root.mediaAction("next")
     }
   }
 
@@ -163,10 +262,10 @@ BarWidget {
       id: keyCatcher
       anchors.fill: parent
       onCloseRequested: root.close()
-      onActivateRequested: root.runAction("--toggle")
+      onActivateRequested: root.mediaAction("playPause")
       onTextKey: function(key) {
-        if (key === "n") root.runAction("--next")
-        else if (key === "b") root.runAction("--prev")
+        if (key === "n") root.mediaAction("next")
+        else if (key === "b") root.mediaAction("previous")
         else if (key === "r") root.refresh()
         else if (key === "o") root.openTui()
       }
@@ -195,13 +294,12 @@ BarWidget {
               asynchronous: true
             }
 
-            Text {
+            DeezerLogo {
               anchors.centerIn: parent
+              width: Style.font.display
+              height: width
               visible: root.artworkUrl === ""
-              text: root.playbackStatus === "playing" ? "󰎈" : "󰝚"
               color: root.accent
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.display
             }
           }
 
@@ -274,15 +372,42 @@ BarWidget {
           Text { id: rightTime; text: root.formatTime(root.duration); color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
         }
 
-        Row {
+        // Transport controls on the left, Open TUI pinned to the right edge.
+        Item {
           width: parent.width
-          spacing: Style.space(8)
+          height: Math.max(transport.implicitHeight, openTuiButton.implicitHeight)
 
-          Button { text: "󰒮"; enabled: root.playbackStatus !== "offline"; onClicked: root.runAction("--prev") }
-          Button { text: root.playbackStatus === "playing" ? "󰏤" : "󰐊"; enabled: root.playbackStatus !== "offline"; onClicked: root.runAction("--toggle") }
-          Button { text: "󰒭"; enabled: root.playbackStatus !== "offline"; onClicked: root.runAction("--next") }
-          Item { width: 1; height: 1 }
-          Button { text: "Open TUI"; onClicked: root.openTui() }
+          Row {
+            id: transport
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+
+            Button { text: "󰒮"; enabled: root.canControl; onClicked: root.mediaAction("previous") }
+            Button { text: root.mediaPlaying ? "󰏤" : "󰐊"; enabled: root.canControl; onClicked: root.mediaAction("playPause") }
+            Button { text: "󰒭"; enabled: root.canControl; onClicked: root.mediaAction("next") }
+          }
+
+          Button {
+            id: openTuiButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: "Open TUI"
+            onClicked: root.openTui()
+          }
+        }
+
+        // The track details above are Deezer's; say so when the buttons are
+        // steering some other player.
+        Text {
+          visible: root.activePlayer !== null && !root.activeIsDeezer
+          width: parent.width
+          text: "Controls: " + (root.activePlayer ? (root.activePlayer.identity || root.activePlayer.desktopEntry || "media player") : "")
+            + (root.activePlayer && root.activePlayer.trackTitle ? " — " + root.activePlayer.trackTitle : "")
+          textFormat: Text.PlainText
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
         }
 
         Text {
