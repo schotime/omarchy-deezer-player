@@ -1,17 +1,17 @@
-# Omarchy frontend
+# Deezer Player for Omarchy
 
-`deezer-player` is a Quickshell/Omarchy bar widget for the `deezer-tui`
+An Omarchy bar widget for the [`deezer-tui`](https://github.com/Tatayoyoh/deezer-tui)
 daemon. It intentionally uses Omarchy's `Color` and `Style` singletons rather
 than fixed colours, fonts, or spacing, so every system theme is reflected
 immediately in the player UI.
 
-## Install for development
+## Install
 
-Build or install `deezer-tui`, then copy the plugin into your user-owned
-Omarchy plugin folder:
+Install `deezer-tui`, then clone this repo into your user-owned Omarchy
+plugin folder:
 
 ```bash
-cp -r omarchy/deezer-player ~/.config/omarchy/plugins/schotime.deezer-player
+git clone https://github.com/schotime/omarchy-deezer-player ~/.config/omarchy/plugins/schotime.deezer-player
 ```
 
 Add **Deezer Player** from the Omarchy bar widget picker. The shell reloads
