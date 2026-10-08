@@ -29,8 +29,11 @@ and sends transport commands through the existing CLI/daemon protocol.
 
 ## Drop-down TUI
 
-`open-tui.sh` opens `deezer-tui` as a drop-down under the bar and
-`hide-tui.sh` slides it away once focus leaves it. Both need `hyprctl` and
+`open-tui.sh` opens `deezer-tui` as a drop-down in the corner of the screen
+the bar icon sits in, so it follows the bar to any edge and the widget to
+either end of it, and `hide-tui.sh` slides it away once focus leaves it.
+`slide-tui.sh` points Hyprland's special workspace slide at the bar's edge
+while the drop-down is out, then puts your own slide back. Both need `hyprctl` and
 `jq`, plus a window rule that keeps the TUI on its own special workspace, in
 `~/.config/hypr/hyprland.lua`:
 
@@ -38,13 +41,14 @@ and sends transport commands through the existing CLI/daemon protocol.
 o.window("org\\.omarchy\\.deezer-tui", {
   float = true,
   size = { "(monitor_w/3)", "(monitor_h/3)" },
-  -- Top-right, just under the 30px bar with the usual 8px outer gap.
+  -- open-tui.sh moves it to the icon's corner once it maps.
   move = { "(monitor_w-monitor_w/3-8)", "(38)" },
   workspace = "special:deezer",
 })
 ```
 
-The same script can be bound to a key:
+The same script can be bound to a key; it then picks the corner from the bar
+position and the widget's layout section in `shell.json`:
 
 ```lua
 o.bind("SUPER + SHIFT + M", "Music", 'bash "$HOME/.config/omarchy/plugins/schotime.deezer-player/open-tui.sh" deezer-tui')

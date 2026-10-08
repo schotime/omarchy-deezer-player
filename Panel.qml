@@ -123,10 +123,24 @@ BarWidget {
     return decodeURIComponent(String(Qt.resolvedUrl(name)).replace(/^file:\/\//, ""))
   }
 
+  // The screen corner the bar icon sits in, e.g. "bottom-right": the bar's edge,
+  // plus which half of the bar the icon is in.
+  function tuiCorner() {
+    var edge = bar ? String(bar.position || "top") : "top"
+    var window = button.QsWindow.window
+    var nearStart = false
+    if (window && window.contentItem) {
+      var middle = button.mapToItem(window.contentItem, button.width / 2, button.height / 2)
+      nearStart = vertical ? middle.y < window.contentItem.height / 2 : middle.x < window.contentItem.width / 2
+    }
+    if (vertical) return (nearStart ? "top" : "bottom") + "-" + edge
+    return edge + "-" + (nearStart ? "left" : "right")
+  }
+
   function openTui() {
     // Keep one TUI window: open-tui.sh slides the drop-down in or out, or
     // focuses a terminal running deezer-tui by hand, before launching.
-    if (bar) bar.run("bash " + Util.shellQuote(scriptPath("open-tui.sh")) + " " + Util.shellQuote(root.binary))
+    if (bar) bar.run("bash " + Util.shellQuote(scriptPath("open-tui.sh")) + " " + Util.shellQuote(root.binary) + " " + Util.shellQuote(tuiCorner()) + " " + Util.shellQuote(bar.position || "top"))
     root.close()
   }
 

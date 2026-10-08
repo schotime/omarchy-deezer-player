@@ -39,3 +39,6 @@ else
   hyprctl dispatch "$toggle" >/dev/null
   hyprctl dispatch "hl.dsp.focus({ monitor = \"$focused\" })" >/dev/null
 fi
+
+# Put the user's own special workspace slide back once this one has finished.
+setsid bash "$(dirname "$0")/slide-tui.sh" restore >/dev/null 2>&1 &
